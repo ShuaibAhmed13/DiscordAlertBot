@@ -26,7 +26,6 @@ import java.util.concurrent.TimeUnit;
 /**
  * @author ahmed
  * @version 1.0
- *
  */
 public class JDASetup extends ListenerAdapter {
 
@@ -44,7 +43,7 @@ public class JDASetup extends ListenerAdapter {
             sendStreamAlert(liveEvent);
         });
         tc.twitchClient.getEventManager().onEvent(ChannelGoOfflineEvent.class, offlineEvent -> {
-            System.out.println("this channel went offline");
+            sendOfflineAlert(offlineEvent);
         });
         streamers = new ArrayList<>();
         channels = new ArrayList<>();
@@ -67,6 +66,7 @@ public class JDASetup extends ListenerAdapter {
 
     /**
      * Commands that a user can select by typing in '/'
+     *
      * @param event
      */
     @Override
@@ -90,7 +90,8 @@ public class JDASetup extends ListenerAdapter {
     }
 
     /**
-     * Add a streamer to the streamerlist
+     * Add a streamer to the streamerlist to get notitications when they go live
+     *
      * @param streamerName
      * @param event
      */
@@ -106,6 +107,11 @@ public class JDASetup extends ListenerAdapter {
         }
     }
 
+    /**
+     * Display the list of streamers for whom you are getting notifications
+     *
+     * @param event
+     */
     private void displayStreamers(SlashCommandInteractionEvent event) {
         if (streamers.isEmpty()) event.getHook().sendMessage("The list is empty!").queue();
         else {
@@ -119,6 +125,12 @@ public class JDASetup extends ListenerAdapter {
         }
     }
 
+    /**
+     * Remove a streamer from your notification list
+     *
+     * @param streamerName
+     * @param event
+     */
     private void removeStreamer(String streamerName, SlashCommandInteractionEvent event) {
         if (!streamers.contains(tc.getTwitchStreamer(streamerName)))
             event.getHook().sendMessage("This streamer is not on your list.").queue();
@@ -129,6 +141,12 @@ public class JDASetup extends ListenerAdapter {
         }
     }
 
+    /**
+     * Add a channel on which you would like to receive streamer notifications
+     *
+     * @param channelName
+     * @param event
+     */
     private void addChannel(String channelName, SlashCommandInteractionEvent event) {
         List<TextChannel> ch = event.getGuild().getTextChannelsByName(channelName, true);
         if (!ch.isEmpty()) {
@@ -141,6 +159,11 @@ public class JDASetup extends ListenerAdapter {
         } else event.getHook().sendMessage("Please enter a valid channel name.").queue();
     }
 
+    /**
+     * Get a list of all channels where streamer notifications are enabled
+     *
+     * @param event
+     */
     private void displayChannels(SlashCommandInteractionEvent event) {
         if (channels.isEmpty()) event.getHook().sendMessage("No channels in the list.").queue();
         else {
@@ -154,6 +177,12 @@ public class JDASetup extends ListenerAdapter {
         }
     }
 
+    /**
+     * Remove this channel from the channellist to avoid getting notifications there
+     *
+     * @param channelName
+     * @param event
+     */
     private void removeChannel(String channelName, SlashCommandInteractionEvent event) {
         List<TextChannel> ch = event.getGuild().getTextChannelsByName(channelName, true);
         if (!ch.isEmpty()) {
@@ -166,6 +195,11 @@ public class JDASetup extends ListenerAdapter {
 
     }
 
+    /**
+     * Send an embedded message to all enabled channels notifying people that a streamer went live
+     *
+     * @param event
+     */
     private void sendStreamAlert(ChannelGoLiveEvent event) {
         User streamer = tc.twitchClient.getHelix().getUsers(null, null, Arrays.asList(event.getChannel().getName()))
                 .execute().getUsers().get(0);
@@ -175,11 +209,29 @@ public class JDASetup extends ListenerAdapter {
             eb.setImage(streamer.getOfflineImageUrl());
         if (streamer.getProfileImageUrl() != null) eb.setThumbnail(streamer.getProfileImageUrl());
         eb.setAuthor(jda.getSelfUser().getName(), null, jda.getSelfUser().getAvatarUrl());
-        eb.setColor(new Color(71, 201, 66));
+        eb.setColor(new Color(106, 227, 101));
         channels.forEach(channel -> {
             channel.sendTyping().queue();
             channel.sendMessageEmbeds(eb.build()).queue();
         });
     }
 
+    /**
+     * Send an alert (in the form of an embedded message) for when a streamer has gone offline
+     *
+     * @param event
+     */
+    private void sendOfflineAlert(ChannelGoOfflineEvent event) {
+        User streamer = tc.twitchClient.getHelix().getUsers(null, null, Arrays.asList(event.getChannel().getName()))
+                .execute().getUsers().get(0);
+        EmbedBuilder eb = new EmbedBuilder();
+        eb.setTitle(streamer.getDisplayName() + " has gone offline");
+        eb.setColor(new Color(71, 201, 249));
+        eb.setAuthor(jda.getSelfUser().getName(), null, jda.getSelfUser().getAvatarUrl());
+        if (streamer.getOfflineImageUrl() != null && streamer.getOfflineImageUrl().length() > 0)
+            eb.setImage(streamer.getOfflineImageUrl());
+        channels.forEach(channel -> {
+            channel.sendMessageEmbeds(eb.build()).queue();
+        });
+    }
 }
