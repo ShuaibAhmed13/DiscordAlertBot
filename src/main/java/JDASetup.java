@@ -30,17 +30,28 @@ public class JDASetup extends ListenerAdapter {
         streamers = new ArrayList<>();
 
         jda.upsertCommand("addstreamer", "Type in a Twitch Streamer to get stream alerts for them.")
-                .addOption(OptionType.STRING, "streamername", "Type in the streamers name", true)
+                .addOption(OptionType.STRING, "streamername", "Type in the streamer's name.", true)
+                .queue();
+        jda.upsertCommand("streamers", "See the list off all added streamers.").queue();
+        jda.upsertCommand("removestreamer", "Remove this streamer from the notification list.")
+                .addOption(OptionType.STRING, "streamername", "Type in the streamer's name.", true)
                 .queue();
     }
 
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event) {
         OptionMapping streamername = event.getOption("streamername");
+        event.deferReply().queue();
         if(event.getName().equals("addstreamer")) {
-            event.deferReply().queue();
             addStreamer(streamername.getAsString(), event);
         }
+        else if(event.getName().equals("streamers")) {
+            displayStreamers(event);
+        }
+        else if(event.getName().equals("removestreamer")) {
+            removeStreamer(streamername.getAsString(), event);
+        }
+        else event.getHook().sendMessage("Whoops, there was a problem.").queue();
     }
 
     private void addStreamer(String streamerName, SlashCommandInteractionEvent event) {
@@ -52,5 +63,21 @@ public class JDASetup extends ListenerAdapter {
         }
     }
 
-    
+    private void displayStreamers(SlashCommandInteractionEvent event) {
+        if(streamers.isEmpty()) event.getHook().sendMessage("The list is empty!").queue();
+        else event.getHook().sendMessage(streamers.toString()).queue();
+    }
+
+    private void removeStreamer(String streamerName, SlashCommandInteractionEvent event) {
+        if(!streamers.contains(streamerName)) event.getHook().sendMessage("This streamer is not on the list.").queue();
+        else {
+            streamers.remove(streamerName);
+            event.getHook().sendMessage("Streamer removed from list.").queue();
+        }
+    }
+
+//    private void sendStreamAlert() {
+//
+//    }
+
 }
