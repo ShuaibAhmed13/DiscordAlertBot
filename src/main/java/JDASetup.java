@@ -1,4 +1,8 @@
+import com.github.twitch4j.events.ChannelGoLiveEvent;
+import com.github.twitch4j.events.ChannelGoOfflineEvent;
+import com.github.twitch4j.helix.domain.User;
 import io.github.cdimascio.dotenv.Dotenv;
+import net.dv8tion.jda.api.EmbedBuilder;
 import net.dv8tion.jda.api.JDA;
 import net.dv8tion.jda.api.JDABuilder;
 import net.dv8tion.jda.api.entities.Activity;
@@ -12,72 +16,170 @@ import net.dv8tion.jda.api.interactions.commands.OptionType;
 import org.jetbrains.annotations.NotNull;
 
 import javax.security.auth.login.LoginException;
+import java.awt.*;
+import java.lang.reflect.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
+/**
+ * @author ahmed
+ * @version 1.0
+ *
+ */
 public class JDASetup extends ListenerAdapter {
 
-    private final Twitch4JSetup twitchClient;
-    public List<String> guilds;
-    public List<String> streamers;
+    private final Twitch4JSetup tc;
+    public List<TextChannel> channels;
+    public List<User> streamers;
     JDA jda;
+
     public JDASetup() throws LoginException, InterruptedException {
         jda = JDABuilder.createDefault(Dotenv.configure().load().get("JDABotAPI"))
                 .setActivity(Activity.watching("Twitch.tv")).addEventListeners(this)
                 .build().awaitReady();
-        twitchClient = new Twitch4JSetup();
-        guilds = new ArrayList<>();
+        tc = new Twitch4JSetup();
+        tc.twitchClient.getEventManager().onEvent(ChannelGoLiveEvent.class, liveEvent -> {
+            sendStreamAlert(liveEvent);
+        });
+        tc.twitchClient.getEventManager().onEvent(ChannelGoOfflineEvent.class, offlineEvent -> {
+            System.out.println("this channel went offline");
+        });
         streamers = new ArrayList<>();
-
+        channels = new ArrayList<>();
         jda.upsertCommand("addstreamer", "Type in a Twitch Streamer to get stream alerts for them.")
                 .addOption(OptionType.STRING, "streamername", "Type in the streamer's name.", true)
                 .queue();
-        jda.upsertCommand("streamers", "See the list off all added streamers.").queue();
+        jda.upsertCommand("displaystreamers", "See the list off all added streamers.").queue();
         jda.upsertCommand("removestreamer", "Remove this streamer from the notification list.")
                 .addOption(OptionType.STRING, "streamername", "Type in the streamer's name.", true)
                 .queue();
+        jda.upsertCommand("addchannel", "Add a text channel in which you would like the stream alerts.")
+                .addOption(OptionType.STRING, "channelname", "Name of channel.", true)
+                .queue();
+        jda.upsertCommand("displaychannels", "Get a list of all the channels in which you will receive stream notifications.")
+                .queue();
+        jda.upsertCommand("removechannel", "Remove this channel to stop getting stream alerts there.")
+                .addOption(OptionType.STRING, "channelname", "Name of channel.", true)
+                .queue();
     }
 
+    /**
+     * Commands that a user can select by typing in '/'
+     * @param event
+     */
     @Override
     public void onSlashCommandInteraction(@NotNull SlashCommandInteractionEvent event) {
         OptionMapping streamername = event.getOption("streamername");
+        OptionMapping channelName = event.getOption("channelname");
         event.deferReply().queue();
-        if(event.getName().equals("addstreamer")) {
+        if (event.getName().equals("addstreamer")) {
             addStreamer(streamername.getAsString(), event);
-        }
-        else if(event.getName().equals("streamers")) {
+        } else if (event.getName().equals("displaystreamers")) {
             displayStreamers(event);
-        }
-        else if(event.getName().equals("removestreamer")) {
+        } else if (event.getName().equals("removestreamer")) {
             removeStreamer(streamername.getAsString(), event);
-        }
-        else event.getHook().sendMessage("Whoops, there was a problem.").queue();
+        } else if (event.getName().equals("addchannel")) {
+            addChannel(channelName.getAsString(), event);
+        } else if (event.getName().equals("displaychannels")) {
+            displayChannels(event);
+        } else if (event.getName().equals("removechannel")) {
+            removeChannel(channelName.getAsString(), event);
+        } else event.getHook().sendMessage("Whoops, there was a problem.").queue();
     }
 
+    /**
+     * Add a streamer to the streamerlist
+     * @param streamerName
+     * @param event
+     */
     private void addStreamer(String streamerName, SlashCommandInteractionEvent event) {
-        boolean valid = twitchClient.validateTwitchStreamer(streamerName);
-        if(!valid) event.getHook().sendMessage("This streamer does not exist!").queue();
+        boolean valid = tc.validateTwitchStreamer(streamerName);
+        boolean present = streamers.contains(tc.getTwitchStreamer(streamerName));
+        if (!valid) event.getHook().sendMessage("This streamer does not exist!").queue();
+        else if (present) event.getHook().sendMessage("This streamer is already on your list!").queue();
         else {
-            streamers.add(streamerName);
+            streamers.add(tc.getTwitchStreamer(streamerName));
+            tc.twitchClient.getClientHelper().enableStreamEventListener(streamerName);
             event.getHook().sendMessage("Streamer added successfully!").queue();
         }
     }
 
     private void displayStreamers(SlashCommandInteractionEvent event) {
-        if(streamers.isEmpty()) event.getHook().sendMessage("The list is empty!").queue();
-        else event.getHook().sendMessage(streamers.toString()).queue();
+        if (streamers.isEmpty()) event.getHook().sendMessage("The list is empty!").queue();
+        else {
+            String str = "";
+            for (int i = 0; i < streamers.size(); i++) {
+                str += streamers.get(i).getDisplayName();
+                if (i == streamers.size() - 1) break;
+                str += ", ";
+            }
+            event.getHook().sendMessage(str).queue();
+        }
     }
 
     private void removeStreamer(String streamerName, SlashCommandInteractionEvent event) {
-        if(!streamers.contains(streamerName)) event.getHook().sendMessage("This streamer is not on the list.").queue();
+        if (!streamers.contains(tc.getTwitchStreamer(streamerName)))
+            event.getHook().sendMessage("This streamer is not on your list.").queue();
         else {
-            streamers.remove(streamerName);
+            streamers.remove(tc.getTwitchStreamer(streamerName));
+            tc.twitchClient.getClientHelper().disableStreamEventListener(streamerName);
             event.getHook().sendMessage("Streamer removed from list.").queue();
         }
     }
 
-//    private void sendStreamAlert() {
-//
-//    }
+    private void addChannel(String channelName, SlashCommandInteractionEvent event) {
+        List<TextChannel> ch = event.getGuild().getTextChannelsByName(channelName, true);
+        if (!ch.isEmpty()) {
+            if (channels.contains(ch.get(0)))
+                event.getHook().sendMessage("This channel is already on your list.").queue();
+            else {
+                this.channels.add(ch.get(0));
+                event.getHook().sendMessage("Channel added successfully!").queue();
+            }
+        } else event.getHook().sendMessage("Please enter a valid channel name.").queue();
+    }
+
+    private void displayChannels(SlashCommandInteractionEvent event) {
+        if (channels.isEmpty()) event.getHook().sendMessage("No channels in the list.").queue();
+        else {
+            String str = "";
+            for (int i = 0; i < channels.size(); i++) {
+                str += channels.get(i).getName() + ":" + channels.get(i).getId();
+                if (i == channels.size() - 1) break;
+                str += ", ";
+            }
+            event.getHook().sendMessage(str).queue();
+        }
+    }
+
+    private void removeChannel(String channelName, SlashCommandInteractionEvent event) {
+        List<TextChannel> ch = event.getGuild().getTextChannelsByName(channelName, true);
+        if (!ch.isEmpty()) {
+            if (!channels.contains(ch.get(0))) event.getHook().sendMessage("This channel is not on your list.").queue();
+            else {
+                channels.remove(ch.get(0));
+                event.getHook().sendMessage("Channel successfully removed from list.").queue();
+            }
+        } else event.getHook().sendMessage("This channel doesn't exist.").queue();
+
+    }
+
+    private void sendStreamAlert(ChannelGoLiveEvent event) {
+        User streamer = tc.twitchClient.getHelix().getUsers(null, null, Arrays.asList(event.getChannel().getName()))
+                .execute().getUsers().get(0);
+        EmbedBuilder eb = new EmbedBuilder();
+        eb.setTitle(streamer.getDisplayName() + " is live!", "https://twitch.tv/" + streamer.getDisplayName());
+        if (streamer.getOfflineImageUrl() != null && streamer.getOfflineImageUrl().length() > 0)
+            eb.setImage(streamer.getOfflineImageUrl());
+        if (streamer.getProfileImageUrl() != null) eb.setThumbnail(streamer.getProfileImageUrl());
+        eb.setAuthor(jda.getSelfUser().getName(), null, jda.getSelfUser().getAvatarUrl());
+        eb.setColor(new Color(71, 201, 66));
+        channels.forEach(channel -> {
+            channel.sendTyping().queue();
+            channel.sendMessageEmbeds(eb.build()).queue();
+        });
+    }
 
 }
